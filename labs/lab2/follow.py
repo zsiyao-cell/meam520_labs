@@ -79,17 +79,27 @@ class JacobianDemo:
         ang_vdes = 0x3 np array of target end effector orientation velocity in the
         rotation vector representation in the world frame
         """
-        xdes = JacobianDemo.x0 + np.array([0, L * sin(f * t), 0])
-        vdes = np.array([0, L * f * np.cos(f * t), 0])
+        # Linear trajectory along z-axis
+        xdes = JacobianDemo.x0 + np.array([
+            0,
+            0,
+            (L / 2) * sin(f * t)
+        ])
 
-        # Example for generating an orientation trajectory
-        # The end effector will rotate around the x-axis during the line motion
-        # following the changing ang
+        vdes = np.array([
+            0,
+            0,
+            (L / 2) * f * cos(f * t)
+        ])
+
+        # Orientation trajectory: rotate around x-axis
         ang = -np.pi + (np.pi / 4.0) * sin(f * t)
+
         r = ang * np.array([1.0, 0.0, 0.0])
         Rdes = rotvec_to_matrix(r)
 
         ang_v = (np.pi / 4.0) * f * cos(f * t)
+
         ang_vdes = ang_v * np.array([1.0, 0.0, 0.0])
 
         return Rdes, ang_vdes, xdes, vdes
@@ -114,6 +124,31 @@ class JacobianDemo:
         # TODO: Implement linear and orientation components of this trajectory
         # Test extensively in simulation before your robot lab!
 
+        # Linear position trajectory
+        xdes = JacobianDemo.x0 + np.array([
+            rx * sin(fx * t),
+            ry * sin(fy * t),
+            0
+        ])
+
+        # Linear velocity trajectory
+        vdes = np.array([
+            rx * fx * cos(fx * t),
+            ry * fy * cos(fy * t),
+            0
+        ])
+
+        # Orientation trajectory: small oscillation about x-axis
+        ang = -np.pi + 0.1 * sin(fx * t)
+
+        r = ang * np.array([1.0, 0.0, 0.0])
+        Rdes = rotvec_to_matrix(r)
+
+        # Desired angular velocity
+        ang_v = 0.1 * fx * cos(fx * t)
+
+        ang_vdes = ang_v * np.array([1.0, 0.0, 0.0])
+
         ## END STUDENT CODE
         return Rdes, ang_vdes, xdes, vdes
 
@@ -133,8 +168,51 @@ class JacobianDemo:
         """
         # TODO: Implement ellipse trajectory
 
+        # Ellipse in the y-z plane
+        phase = f * t
+
+        offset = np.array([
+            0,
+            ry * cos(phase),
+            rz * sin(phase)
+        ])
+
+        offset_dot = np.array([
+            0,
+            -ry * f * sin(phase),
+            rz * f * cos(phase)
+        ])
+
+        # Smooth start over first 3 seconds
+        ramp_time = 3.0
+        u = np.clip(t / ramp_time, 0.0, 1.0)
+
+        s = 3 * u**2 - 2 * u**3
+
+        if t < ramp_time:
+            s_dot = (6 * u - 6 * u**2) / ramp_time
+        else:
+            s_dot = 0.0
+
+        # Desired linear position and velocity
+        xdes = JacobianDemo.x0 + s * offset
+        vdes = s * offset_dot + s_dot * offset
+
+        # Orientation trajectory
+        ang = -np.pi + 0.1 * s * sin(phase)
+
+        r = ang * np.array([1.0, 0.0, 0.0])
+        Rdes = rotvec_to_matrix(r)
+
+        # Angular velocity, including ramp derivative
+        ang_v = 0.1 * (
+            s_dot * sin(phase) + s * f * cos(phase)
+        )
+
+        ang_vdes = ang_v * np.array([1.0, 0.0, 0.0])
+
         ## END STUDENT CODE
-        return xdes, vdes
+        return Rdes, ang_vdes, xdes, vdes
 
     ###################
     ## VISUALIZATION ##
@@ -203,9 +281,11 @@ class JacobianDemo:
                 pass
 
 
+
 if __name__ == "__main__":
+
     if len(sys.argv) < 2:
-        print("usage:\n\tpython follow.py line\n\tpython follow.py eight")
+        print("usage: python follow.py [line|eight|ellipse]")
         exit()
 
     rospy.init_node("follower")
@@ -213,24 +293,31 @@ if __name__ == "__main__":
     JD = JacobianDemo()
 
     if sys.argv[1] == "line":
-        callback = lambda state: JD.follow_trajectory(state, JacobianDemo.line)
+        callback = lambda state: JD.follow_trajectory(
+            state, JacobianDemo.line
+        )
+
     elif sys.argv[1] == "eight":
-        callback = lambda state: JD.follow_trajectory(state, JacobianDemo.eight)
+        callback = lambda state: JD.follow_trajectory(
+            state, JacobianDemo.eight
+        )
+
+    elif sys.argv[1] == "ellipse":
+        callback = lambda state: JD.follow_trajectory(
+            state, JacobianDemo.ellipse
+        )
+
     else:
         print("invalid option")
         exit()
 
     arm = ArmController(on_state_callback=callback)
 
-    # reset arm
     print("resetting arm...")
     arm.safe_move_to_position(arm.neutral_position())
 
-    # q = np.array([ 0,    0,     0, 0,     0, pi, 0.75344866 ])
-    # arm.safe_move_to_position(q)
-
-    # start tracking trajectory
     JD.active = True
     JD.start_time = time_in_seconds()
 
     input("Press Enter to stop")
+

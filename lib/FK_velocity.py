@@ -14,4 +14,18 @@ def FK_velocity(q_in, dq):
 
     velocity = np.zeros((6, 1))
 
+    J = calcJacobian(q_in)
+
+    dq = dq.T
+
+    velocity = J @ dq
+
+    v = velocity[0:3]
+    w = velocity[3:6]
+
     return velocity
+
+if __name__ == "__main__":
+    q = np.array([0, 0, 0, 0, 0, 0, 0])
+    dq = np.array([0, 0, 1, 0, 0, 0, 0])
+    print(FK_velocity(q,dq))
