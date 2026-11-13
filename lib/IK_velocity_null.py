@@ -30,6 +30,22 @@ def IK_velocity_null(q_in, v_in, omega_in, b):
     omega_in = np.array(omega_in)
     omega_in = omega_in.reshape((3,1))
 
+    dq = IK_velocity(q_in, v_in, omega_in)
+    J = calcJacobian(q_in)
+
+    desired_velocity = np.concatenate((v_in.flatten(), omega_in.flatten()))
+
+    mask = ~np.isnan(desired_velocity)
+    J_reduced = J[mask, :]
+
+    J_pinv = np.linalg.pinv(J_reduced)
+
+    N = np.eye(7) - J_pinv @ J_reduced
+
+    null = (N @ b).reshape((1, 7))
 
     return dq + null
+
+
+
 

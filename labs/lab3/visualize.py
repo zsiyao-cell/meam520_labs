@@ -10,7 +10,8 @@ import geometry_msgs.msg
 
 from core.interfaces import ArmController
 
-from lib.solveIK_position import IK
+from lib.IK_position_null import IK
+
 
 rospy.init_node("visualizer")
 
@@ -135,7 +136,7 @@ if __name__ == "__main__":
         seed = arm.neutral_position() # use neutral configuration as seed
 
         start = perf_counter()
-        q, rollout, success, message = ik.inverse(target, seed, method='J_pseudo', alpha=.5)  #try both methods
+        q, rollout, success, message = ik.inverse(target, seed, method='J_trans', alpha=.5)  #try both methods
         stop = perf_counter()
         dt = stop - start
 

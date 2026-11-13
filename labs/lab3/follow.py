@@ -54,7 +54,7 @@ class JacobianDemo():
     x0 = np.array([0.307, 0, 0.487]) # corresponds to neutral position
     last_iteration_time = None
 
-    visualize_mani_ellipsoid = False
+    visualize_mani_ellipsoid = True
 
     ##################
     ## TRAJECTORIES ##

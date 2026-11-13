@@ -11,6 +11,8 @@ def calcManipulability(q_in):
     ## STUDENT CODE HERE
     # Calculate mu
 
+    s = np.linalg.svd(J_pos, compute_uv=False)
+    mu = np.prod(s)
     
     ## END STUDENT CODE
     

@@ -4,7 +4,8 @@ from scipy.linalg import null_space
 
 from lib.calcJacobian import calcJacobian
 from lib.calculateFK import FK
-# from lib.IK_velocity import IK_velocity  # optional
+from lib.calcAngDiff import calcAngDiff
+from lib.IK_velocity import IK_velocity
 
 
 class IK:
@@ -72,6 +73,14 @@ class IK:
         displacement = np.zeros(3)
         axis = np.zeros(3)
 
+        p_des = target[:3, 3]
+        p_curr = current[:3, 3]
+        displacement = p_des - p_curr
+
+        R_des = target[:3, :3]
+        R_curr = current[:3, :3]
+        axis = calcAngDiff(R_des, R_curr)
+
         ## END STUDENT CODE
         return displacement, axis
 
@@ -100,6 +109,17 @@ class IK:
         distance = 0
         angle = 0
 
+        distance = np.linalg.norm(G[:3, 3] - H[:3, 3])
+
+        R_G = G[:3, :3]
+        R_H = H[:3, :3]
+        R_rel = R_G.T @ R_H
+
+        cos_theta = (np.trace(R_rel) - 1) / 2
+        cos_theta = np.clip(cos_theta, -1.0, 1.0)
+
+        angle = acos(cos_theta)
+
         ## END STUDENT CODE
         return distance, angle
 
@@ -124,6 +144,26 @@ class IK:
         success = False
         message = "Solution found/not found + reason"
 
+        within_limits = np.all((q >= self.lower) & (q <= self.upper))
+
+        _, current = self.fk.forward(q)
+
+        distance, angle = self.distance_and_angle(target, current)
+
+        position_valid = distance < self.linear_tol
+        orientation_valid = angle < self.angular_tol
+
+        success = within_limits and position_valid and orientation_valid
+
+        if success:
+            message = "Solution found"
+        elif not within_limits:
+            message = "Solution violates joint limits"
+        elif not position_valid:
+            message = "Position error exceeds tolerance"
+        else:
+            message = "Orientation error exceeds tolerance"
+
         ## END STUDENT CODE
         return success, message
 
@@ -131,8 +171,9 @@ class IK:
     ## Task Functions ##
     ####################
 
+
     @staticmethod
-    def end_effector_task(q, target):
+    def end_effector_task(q, target, method="J_pseudo"):
         """
         Primary task for IK solver. Computes a joint velocity which will reduce
         the error between the target end effector pose and the current end
@@ -147,11 +188,23 @@ class IK:
         decay to zero magnitude as the task is achieved
         """
 
-        ## STUDENT CODE STARTS HERE
-        dq = np.zeros(7)
+        _, current = IK.fk.forward(q)
 
-        ## END STUDENT CODE
+        displacement, axis = IK.displacement_and_axis(target, current)
+
+        if method == "J_pseudo":
+            dq = IK_velocity(q, displacement, axis).reshape(7)
+
+        elif method == "J_trans":
+            J = calcJacobian(q)
+            error = np.concatenate((displacement, axis))
+            dq = J.T @ error
+
+        else:
+            raise ValueError("Unknown IK method: " + str(method))
+
         return dq
+
 
     @staticmethod
     def joint_centering_task(q, rate=5e-1):
@@ -183,7 +236,7 @@ class IK:
     ## Inverse Kinematics Solver ##
     ###############################
 
-    def inverse(self, target, seed, alpha):
+    def inverse(self, target, seed, alpha, method="J_pseudo"):
         """
         Uses gradient descent to solve the full inverse kinematics of the Panda robot.
 
@@ -201,25 +254,34 @@ class IK:
         rollout - a list containing the guess for q at each iteration of the algorithm
         """
 
-        q = seed
+        q = np.asarray(seed, dtype=float).reshape(7).copy()
         rollout = []
 
         ## STUDENT CODE STARTS HERE
 
         ## gradient descent:
-        while True:
-            rollout.append(q)
+        for step in range(self.max_steps):
+            rollout.append(q.copy())
 
             # Primary Task - Achieve End Effector Pose
-            dq_ik = IK.end_effector_task(q, target)
+            dq_ik = IK.end_effector_task(q, target, method=method)
 
             # Secondary Task - Center Joints
             dq_center = IK.joint_centering_task(q)
 
             ## Task Prioritization
+            J = calcJacobian(q)
+            J_pinv = np.linalg.pinv(J)
+
+            N = np.eye(7) - J_pinv @ J
+
+            dq = dq_ik + N @ dq_center
 
             # Check termination conditions
-            break
+            if np.linalg.norm(dq) < self.min_step_size:
+                break
+
+            q = q + alpha * dq
 
             # update q
 
@@ -252,7 +314,7 @@ if __name__ == "__main__":
 
     # Using pseudo-inverse
     q_pseudo, rollout_pseudo, success_pseudo, message_pseudo = ik.inverse(
-        target, seed, alpha=0.5
+        target, seed, alpha=0.5, method="J_trans"
     )
 
     for i, q_pseudo in enumerate(rollout_pseudo):
