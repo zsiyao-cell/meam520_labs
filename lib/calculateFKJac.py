@@ -1,3 +1,4 @@
+
 import numpy as np
 from math import pi
 
@@ -8,6 +9,9 @@ class FK_Jac():
         # TODO: you may want to define geometric parameters here that will be
         # useful in computing the forward kinematics. The data you will need
         # is provided in the lab 1 and 4 handout
+
+        from lib.calculateFK import FK
+        self.fk = FK()
 
         pass
 
@@ -30,6 +34,31 @@ class FK_Jac():
         jointPositions = np.zeros((10,3))
         T0e = np.zeros((10,4,4))
 
+        # Use the same FK convention as calculateFK.py from Lab 1.
+        physical_positions, end_effector_T = self.fk.forward(q)
+        Ai = self.compute_Ai(q)
+
+        # The planner uses seven physical joint points and two virtual gripper
+        # points as its nine control points. The end effector is stored last.
+        jointPositions[:7, :] = physical_positions[:7, :]
+        for i in range(7):
+            T0e[i] = Ai[i]
+
+        # Two virtual control points on opposite sides of the gripper.
+        # Coordinates below are in the end-effector frame (meters).
+        virtual_offsets = (
+            np.array([0.0, 0.04, 0.105]),
+            np.array([0.0, -0.04, 0.105]),
+        )
+        for i, offset in enumerate(virtual_offsets):
+            T_virtual = end_effector_T.copy()
+            T_virtual[:3, 3] = end_effector_T[:3, 3] + end_effector_T[:3, :3] @ offset
+            T0e[7 + i] = T_virtual
+            jointPositions[7 + i] = T_virtual[:3, 3]
+
+        jointPositions[9, :] = physical_positions[7, :]
+        T0e[9] = end_effector_T
+
         # Your code ends here
 
         return jointPositions, T0e
@@ -37,6 +66,38 @@ class FK_Jac():
     # feel free to define additional helper methods to modularize your solution for lab 1
 
     
+    def linear_jacobians(self, q):
+        """
+        Compute linear velocity Jacobians of the 10 expanded control points.
+
+        INPUT:
+        q - 1x7 numpy array of joint angles
+
+        OUTPUT:
+        Jv - 10 x 3 x 7 numpy array, where Jv[k] maps joint velocities
+             to the linear velocity of control point k in the world frame.
+        """
+        q = np.asarray(q, dtype=float).reshape(7)
+        points, _ = self.forward_expanded(q)
+        axes = self.fk.get_axis_of_rotation(q)
+        Ai = self.compute_Ai(q)
+
+        # Joint j rotates about z_{j-1} through the previous frame origin.
+        origins = np.zeros((7, 3))
+        for j in range(1, 7):
+            origins[j] = Ai[j - 1][:3, 3]
+
+        Jv = np.zeros((10, 3, 7))
+        for k in range(10):
+            # Physical control point k is upstream of joints k,...,6.
+            # Both virtual gripper points and the end effector depend on all 7 joints.
+            count = k if k < 7 else 7
+            for j in range(count):
+                Jv[k, :, j] = np.cross(
+                    axes[:, j], points[k] - origins[j]
+                )
+        return Jv
+
     def compute_Ai(self, q):
         """
         INPUT:
@@ -48,7 +109,8 @@ class FK_Jac():
         """
         # STUDENT CODE HERE
 
-        return()
+        return self.fk.compute_Ai(q)[1:]
+
     
 if __name__ == "__main__":
 
@@ -60,4 +122,3 @@ if __name__ == "__main__":
     joint_positions, T0e = fk.forward_expanded(q)
     
     print("Joint Positions:\n",joint_positions)
-    print("End Effector Pose:\n",T0e)
